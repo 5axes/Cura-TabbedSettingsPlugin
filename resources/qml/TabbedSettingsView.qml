@@ -14,7 +14,35 @@ Item
     property var tooltipItem
     property var backgroundItem
 
+    property var settingPreferenceVisibilityHandler: UM.SettingPreferenceVisibilityHandler {}
+    property var perCategoryVisibilityHandler: Cura.PerCategoryVisibilityHandler {}
+    property var instanceContainerVisibilityHandler: Cura.InstanceContainerVisibilityHandler
+    {
+        active: false
+        containerIndex: 0
+    }
+
     property string selectedKey: categoryTabs.itemAt(categoryTabs.currentIndex).key
+    onSelectedKeyChanged:
+    {
+        filter.text = ""
+        filterRow.visible = selectedKey == "_favorites"
+        instanceContainerVisibilityHandler.active = selectedKey == "_user"
+
+        if(selectedKey == "_favorites")
+        {
+            definitionsModel.visibilityHandler = settingPreferenceVisibilityHandler
+        }
+        else if(selectedKey == "_user")
+        {
+            definitionsModel.visibilityHandler = instanceContainerVisibilityHandler
+        }
+        else
+        {
+            perCategoryVisibilityHandler.rootKey = selectedKey
+            definitionsModel.visibilityHandler = perCategoryVisibilityHandler
+        }
+    }
 
     anchors.fill: parent
     anchors.margins: UM.Theme.getSize("default_lining").width
@@ -84,8 +112,6 @@ Item
 
             width: parent.width
             height: UM.Theme.getSize("print_setup_big_item").height
-
-            onVisibleChanged: filter.text = ""
 
             Item
             {
@@ -230,6 +256,7 @@ Item
                     )
                 }
             }
+
             Item
             {
                 // Work around to prevent the buttom from being rescaled if a popup is attached
@@ -267,49 +294,17 @@ Item
                 onPositionChanged: {
                     // This removes focus from items when scrolling.
                     // This fixes comboboxes staying open and scrolling container
-                    /*
                     if (!activeFocus && !filter.activeFocus) {
                         forceActiveFocus();
                     }
-                    */
                 }
             }
 
             model: UM.SettingDefinitionsModel
             {
                 id: definitionsModel
-
-                property var settingPreferenceVisibilityHandler: UM.SettingPreferenceVisibilityHandler {}
-                property var perCategoryVisibilityHandler: Cura.PerCategoryVisibilityHandler {}
-                property var instanceContainerVisibilityHandler: Cura.InstanceContainerVisibilityHandler
-                {
-                    active: false
-                    containerIndex: 0
-                }
-
                 containerId: Cura.MachineManager.activeMachine !== null ? Cura.MachineManager.activeMachine.definition.id: ""
-                visibilityHandler:
-                {
-                    if(selectedKey == "_favorites")
-                    {
-                        filterRow.visible = true
-                        instanceContainerVisibilityHandler.active = false
-                        return settingPreferenceVisibilityHandler
-                    }
-                    else if(selectedKey == "_user")
-                    {
-                        filterRow.visible = false
-                        instanceContainerVisibilityHandler.active = true
-                        return instanceContainerVisibilityHandler
-                    }
-                    else
-                    {
-                        filterRow.visible = false
-                        instanceContainerVisibilityHandler.active = false
-                        perCategoryVisibilityHandler.rootKey = selectedKey
-                        return perCategoryVisibilityHandler
-                    }
-                }
+
                 exclude: ["machine_settings", "command_line_settings", "infill_mesh", "infill_mesh_order", "cutting_mesh", "support_mesh", "anti_overhang_mesh"] // TODO: infill_mesh settings are excluded hardcoded, but should be based on the fact that settable_globally, settable_per_meshgroup and settable_per_extruder are false.
                 expanded:
                 {
@@ -318,6 +313,15 @@ Item
                         return ["*"]
                     }
                     return CuraApplication.expandedCategories
+                }
+                onExpandedChanged:
+                {
+                    if (!filterRow.findingSettings && selectedKey == "_favorites")
+                    {
+                        // Do not change expandedCategories preference while filtering settings
+                        // because all categories are expanded while filtering
+                        CuraApplication.setExpandedCategories(expanded)
+                    }
                 }
                 onVisibilityChanged: Cura.SettingInheritanceManager.scheduleUpdate()
             }
@@ -344,33 +348,36 @@ Item
                 asynchronous: model.type !== "enum" && model.type !== "extruder" && model.type !== "optional_extruder"
                 active: model.type !== undefined
 
-                sourceComponent:
+                //If we use sourcecomponents, there's a QML warning storm when components get destroyed, so we use a
+                //set of stub qml files instead
+                source:
                 {
                     switch(model.type)
                     {
                         case "int":
-                            return settingTextField
+                            return "SettingTextField.qml"
                         case "[int]":
-                            return settingTextField
+                            return "SettingTextField.qml"
                         case "float":
-                            return settingTextField
+                            return "SettingTextField.qml"
                         case "enum":
-                            return settingComboBox
+                            return "SettingComboBox.qml"
                         case "extruder":
-                            return settingExtruder
-                        case "optional_extruder":
-                            return settingOptionalExtruder
+                            return "SettingExtruder.qml"
                         case "bool":
-                            return settingCheckBox
+                            return "SettingCheckBox.qml"
                         case "str":
-                            return settingTextField
+                            return "SettingTextField.qml"
                         case "category":
                             if (selectedKey == "_favorites")
-                                return settingCategory
-                            else
-                                return minimalSettingCategory
+                            {
+                                return "SettingCategory.qml"
+                            }
+                            return "SettingCategoryMinimal.qml"
+                        case "optional_extruder":
+                            return "SettingOptionalExtruder.qml"
                         default:
-                            return settingUnknown
+                            return "SettingUnknown.qml"
                     }
                 }
 
@@ -599,54 +606,6 @@ Item
             key: "machine_extruder_count"
             watchedProperties: [ "value" ]
             storeIndex: 0
-        }
-
-        Component
-        {
-            id: settingTextField;
-            Cura.SettingTextField { }
-        }
-
-        Component
-        {
-            id: settingComboBox;
-            Cura.SettingComboBox { }
-        }
-
-        Component
-        {
-            id: settingExtruder;
-            Cura.SettingExtruder { }
-        }
-
-        Component
-        {
-            id: settingOptionalExtruder;
-            Cura.SettingOptionalExtruder { }
-        }
-
-        Component
-        {
-            id: settingCheckBox;
-            Cura.SettingCheckBox { }
-        }
-
-        Component
-        {
-            id: settingCategory;
-            Cura.SettingCategory { }
-        }
-
-        Component
-        {
-            id: minimalSettingCategory;
-            SettingCategory { }
-        }
-
-        Component
-        {
-            id: settingUnknown;
-            Cura.SettingUnknown { }
         }
     }
 
